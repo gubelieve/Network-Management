@@ -1,0 +1,135 @@
+! Made-up sample log for trying Import configuration / Diagram
+HQ-CORE-02#show running-config
+version 17.9
+hostname HQ-CORE-02
+!
+vlan 10
+ name Management
+vlan 20
+ name Users
+vlan 30
+ name Voice
+!
+interface Loopback0
+ ip address 10.1.254.12 255.255.255.255
+!
+interface Port-channel1
+ description TO HQ-CORE-01 Po1
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+!
+interface TenGigabitEthernet1/0/1
+ description TO HQ-RTR-01 Gi0/0/2
+ no switchport
+ ip address 10.1.255.6 255.255.255.252
+!
+interface TenGigabitEthernet1/0/23
+ switchport mode trunk
+ channel-group 1 mode active
+!
+interface TenGigabitEthernet1/0/24
+ switchport mode trunk
+ channel-group 1 mode active
+!
+interface GigabitEthernet1/0/10
+ description ACCESS-01 UPLINK
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+!
+interface GigabitEthernet1/0/11
+ description ACCESS-02 UPLINK
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+!
+interface GigabitEthernet1/0/12
+ description TO HQ-WLC-01 port 2
+ switchport mode trunk
+ switchport trunk allowed vlan 10,40
+!
+interface Vlan10
+ description Management
+ ip address 10.1.0.3 255.255.255.0
+!
+interface Vlan20
+ ip address 10.1.10.3 255.255.254.0
+!
+interface Vlan30
+ ip address 10.1.20.3 255.255.255.0
+!
+router ospf 1
+ network 10.1.0.0 0.0.255.255 area 0
+end
+
+HQ-CORE-02#show cdp neighbors
+Capability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge
+                  S - Switch, H - Host, I - IGMP, r - Repeater, P - Phone
+
+Device ID        Local Intrfce     Holdtme    Capability  Platform  Port ID
+HQ-RTR-01        Ten 1/0/1         150              R I   ISR4451-X Gig 0/0/2
+HQ-CORE-01.lab.local
+                 Ten 1/0/23        170             R S I  C9500-24Y Ten 1/0/23
+HQ-CORE-01.lab.local
+                 Ten 1/0/24        170             R S I  C9500-24Y Ten 1/0/24
+HQ-ACC-01        Gig 1/0/10        141              S I   C9300-48P Gig 1/0/50
+HQ-ACC-02        Gig 1/0/11        133              S I   C9300-48P Gig 1/0/50
+
+Total cdp entries displayed : 5
+
+HQ-CORE-02#show interfaces status
+
+Port         Name               Status       Vlan       Duplex  Speed Type
+Gi1/0/10     ACCESS-01 UPLINK   connected    trunk        full   1000 1000BaseSX SFP
+Gi1/0/11     ACCESS-02 UPLINK   connected    trunk        full   1000 1000BaseSX SFP
+Gi1/0/12     TO HQ-WLC-01 port  connected    trunk        full   1000 1000BaseSX SFP
+Te1/0/1      TO HQ-RTR-01 Gi0/0 connected    routed       full    10G SFP-10GBase-SR
+Te1/0/23                        connected    trunk        full    10G SFP-10GBase-SR
+Te1/0/24                        connected    trunk        full    10G SFP-10GBase-SR
+Po1          TO HQ-CORE-01 Po1  connected    trunk      a-full  a-10G N/A
+
+HQ-CORE-02#show interfaces trunk
+
+Port        Mode             Encapsulation  Status        Native vlan
+Po1         on               802.1q         trunking      1
+Gi1/0/10    on               802.1q         trunking      1
+Gi1/0/11    on               802.1q         trunking      1
+Gi1/0/12    on               802.1q         trunking      1
+
+Port        Vlans allowed on trunk
+Po1         10,20,30
+Gi1/0/10    10,20,30
+Gi1/0/11    10,20,30
+Gi1/0/12    10,40
+
+Port        Vlans allowed and active in management domain
+Po1         10,20,30
+Gi1/0/10    10,20,30
+Gi1/0/11    10,20,30
+Gi1/0/12    10
+
+HQ-CORE-02#show etherchannel summary
+Flags:  D - down        P - bundled in port-channel
+        S - Layer2      U - in use
+
+Number of channel-groups in use: 1
+Number of aggregators:           1
+
+Group  Port-channel  Protocol    Ports
+------+-------------+-----------+-----------------------------------------------
+1      Po1(SU)         LACP      Te1/0/23(P)     Te1/0/24(P)
+
+HQ-CORE-02#show ip ospf neighbor
+
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+10.1.254.1        1   FULL/DR         00:00:38    10.1.255.5      TenGigabitEthernet1/0/1
+10.1.254.11       1   FULL/DR         00:00:33    10.1.0.2        Vlan10
+
+HQ-CORE-02#show ip route
+Gateway of last resort is 10.1.255.5 to network 0.0.0.0
+
+O*E2  0.0.0.0/0 [110/1] via 10.1.255.5, 01:10:02, TenGigabitEthernet1/0/1
+      10.0.0.0/8 is variably subnetted, 10 subnets, 4 masks
+C        10.1.0.0/24 is directly connected, Vlan10
+C        10.1.10.0/23 is directly connected, Vlan20
+C        10.1.20.0/24 is directly connected, Vlan30
+C        10.1.255.4/30 is directly connected, TenGigabitEthernet1/0/1
+HQ-CORE-02#

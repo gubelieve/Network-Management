@@ -1,0 +1,77 @@
+! Made-up sample log for trying Import configuration / Diagram
+HQ-RTR-01#show running-config
+Building configuration...
+version 17.9
+hostname HQ-RTR-01
+!
+interface Loopback0
+ ip address 10.1.254.1 255.255.255.255
+!
+interface GigabitEthernet0/0/0
+ description WAN ISP-1 MPLS-BKK-HQ
+ ip address 203.0.113.2 255.255.255.252
+!
+interface GigabitEthernet0/0/1
+ description TO HQ-CORE-01 Te1/0/1
+ ip address 10.1.255.1 255.255.255.252
+!
+interface GigabitEthernet0/0/2
+ description TO HQ-CORE-02 Te1/0/1
+ ip address 10.1.255.5 255.255.255.252
+!
+interface GigabitEthernet0/0/3
+ shutdown
+!
+router ospf 1
+ network 10.1.0.0 0.0.255.255 area 0
+!
+ip route 0.0.0.0 0.0.0.0 203.0.113.1
+end
+
+HQ-RTR-01#show cdp neighbors
+Capability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge
+                  S - Switch, H - Host, I - IGMP, r - Repeater, P - Phone
+
+Device ID        Local Intrfce     Holdtme    Capability  Platform  Port ID
+HQ-CORE-01.lab.local
+                 Gig 0/0/1         151             R S I  C9500-24Y Ten 1/0/1
+HQ-CORE-02.lab.local
+                 Gig 0/0/2         163             R S I  C9500-24Y Ten 1/0/1
+
+Total cdp entries displayed : 2
+
+HQ-RTR-01#show interfaces description
+Interface                      Status         Protocol Description
+Gi0/0/0                        up             up       WAN ISP-1 MPLS-BKK-HQ
+Gi0/0/1                        up             up       TO HQ-CORE-01 Te1/0/1
+Gi0/0/2                        up             up       TO HQ-CORE-02 Te1/0/1
+Gi0/0/3                        admin down     down
+Lo0                            up             up
+
+HQ-RTR-01#show ip route
+Codes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP
+       O - OSPF, IA - OSPF inter area
+
+Gateway of last resort is 203.0.113.1 to network 0.0.0.0
+
+S*    0.0.0.0/0 [1/0] via 203.0.113.1
+      10.0.0.0/8 is variably subnetted, 9 subnets, 4 masks
+O        10.1.0.0/24 [110/2] via 10.1.255.2, 01:10:11, GigabitEthernet0/0/1
+                     [110/2] via 10.1.255.6, 01:10:11, GigabitEthernet0/0/2
+O        10.1.10.0/23 [110/2] via 10.1.255.2, 01:10:11, GigabitEthernet0/0/1
+O        10.1.20.0/24 [110/2] via 10.1.255.2, 01:10:11, GigabitEthernet0/0/1
+C        10.1.254.1/32 is directly connected, Loopback0
+C        10.1.255.0/30 is directly connected, GigabitEthernet0/0/1
+L        10.1.255.1/32 is directly connected, GigabitEthernet0/0/1
+C        10.1.255.4/30 is directly connected, GigabitEthernet0/0/2
+L        10.1.255.5/32 is directly connected, GigabitEthernet0/0/2
+      203.0.113.0/24 is variably subnetted, 2 subnets, 2 masks
+C        203.0.113.0/30 is directly connected, GigabitEthernet0/0/0
+L        203.0.113.2/32 is directly connected, GigabitEthernet0/0/0
+
+HQ-RTR-01#show ip ospf neighbor
+
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+10.1.254.11       1   FULL/BDR        00:00:35    10.1.255.2      GigabitEthernet0/0/1
+10.1.254.12       1   FULL/BDR        00:00:31    10.1.255.6      GigabitEthernet0/0/2
+HQ-RTR-01#
