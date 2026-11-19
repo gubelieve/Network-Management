@@ -184,5 +184,10 @@ export function shortIfName(name: string): string {
     .replace(/^Ethernet/i, "Eth")
     .replace(/^Port-channel/i, "Po")
     .replace(/^Loopback/i, "Lo")
+    // CDP's own abbreviations: "Gig 1/0/49", "Ten 1/0/1", "Fas 0/1", "Hun 1/0/1".
+    .replace(/^Gig(?=\s?\d)/i, "Gi")
+    .replace(/^Ten(?=\s?\d)/i, "Te")
+    .replace(/^Fas(?=\s?\d)/i, "Fa")
+    .replace(/^Hun(?=\s?\d)/i, "Hu")
     .replace(/\s+/g, "")
 }

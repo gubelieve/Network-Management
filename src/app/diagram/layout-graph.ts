@@ -23,7 +23,8 @@ export type Positions = Record<string, { x: number; y: number }>
 export function layoutGraph(t: Topology, withSegments: boolean): Positions {
   const rows = new Map<number, { id: string; w: number }[]>()
   for (const n of t.nodes) {
-    const l = LAYER[n.role]
+    // The WAN sits above everything; phones and other endpoints below the access layer.
+    const l = n.kind === "wan" ? -1 : n.kind === "endpoint" ? 5 : LAYER[n.role]
     rows.set(l, [...(rows.get(l) ?? []), { id: n.id, w: NODE_W }])
   }
   if (withSegments && t.segments.length) rows.set(9, t.segments.map((s) => ({ id: s.id, w: SEG_W })))

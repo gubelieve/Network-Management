@@ -3,7 +3,7 @@ import { listConfigs } from "./config-store"
 import { CIRCUITS, DEVICES, SITES, SUBNETS } from "./sample-data"
 import { mergeConfigs } from "./site-merge"
 import { readStoredSites } from "./site-store"
-import { buildTopology, type Topology } from "./topology"
+import { buildTopology, type Topology, type TopologyOptions } from "./topology"
 import type { Device, Site, SiteDetail, SiteSummary } from "./types"
 
 // The ONE place pages get data from. Today: sample-data.ts, updated by the
@@ -57,13 +57,13 @@ export async function listDevices(): Promise<DeviceWithSite[]> {
   return perSite.flat()
 }
 
-/** The diagram of one site, built from the configs imported for it. */
-export async function getSiteTopology(code: string): Promise<{ topology: Topology; configCount: number } | null> {
+/** The diagram of one site, built from the files imported for it. */
+export async function getSiteTopology(code: string, opts: TopologyOptions = {}): Promise<{ topology: Topology; configCount: number } | null> {
   const site = await findSite(code)
   if (!site) return null
   const configs = await listConfigs(site.code)
   const { parsed } = mergeConfigs(site, [], [], configs)
   const known = DEVICES.filter((d) => d.siteId === site.id).map((d) => ({ hostname: d.hostname, role: d.role, mgmtIp: d.mgmtIp }))
-  const topology = buildTopology(parsed.map((p) => ({ hostname: p.input.hostname, config: p.cfg })), known)
+  const topology = buildTopology(parsed.map((p) => ({ hostname: p.input.hostname, data: p.data })), known, opts)
   return { topology, configCount: configs.length }
 }
