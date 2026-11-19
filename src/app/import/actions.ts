@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { parseConfig } from "@/lib/config-parser"
+import { parseDeviceText } from "@/lib/show-parser"
 import { deleteConfig, saveConfig } from "@/lib/config-store"
 import { findSite } from "@/lib/data"
 
@@ -39,14 +39,14 @@ export async function importConfigs(input: z.infer<typeof ImportInput>): Promise
   const importedAt = new Date().toISOString()
   for (const item of parsed.data.items) {
     // Parsed again here rather than trusting the browser's preview.
-    const cfg = parseConfig(item.raw)
-    const hostname = (cfg.hostname ?? item.hostname ?? "").trim()
+    const data = parseDeviceText(item.raw)
+    const hostname = (data.hostname ?? item.hostname ?? "").trim()
     if (!hostname) {
-      result.skipped.push({ fileName: item.fileName, reason: "ไม่พบ hostname ใน config และไม่ได้ระบุเอง" })
+      result.skipped.push({ fileName: item.fileName, reason: "ไม่พบ hostname (ไม่มีทั้งบรรทัด hostname และ prompt) และไม่ได้ระบุเอง" })
       continue
     }
-    if (cfg.interfaces.length === 0) {
-      result.skipped.push({ fileName: item.fileName, reason: "ไม่พบ interface ใน config (อาจไม่ใช่ไฟล์ running-config)" })
+    if (data.commands.length === 0) {
+      result.skipped.push({ fileName: item.fileName, reason: "ไม่พบผลของคำสั่งที่รองรับ (show run, show cdp ne, show int status/desc/trunk, show port-channel sum, show ip route, show ip ospf ne)" })
       continue
     }
     await saveConfig({ siteCode: site.code, hostname, fileName: item.fileName, importedAt, raw: item.raw })

@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { BrickWall, Download, Maximize2, Network, RadioTower, RotateCcw, Router, Server, Wifi, type LucideIcon } from "lucide-react"
+import { BrickWall, Cloud, Download, Maximize2, Network, Phone, RadioTower, RotateCcw, Router, Server, Wifi, type LucideIcon } from "lucide-react"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
@@ -11,7 +11,8 @@ import { Selector } from "@astryxdesign/core/Selector"
 import { DataTable, Td } from "@/components/data-table"
 import { Panel } from "@/components/page-header"
 import { shortIfName } from "@/lib/config-parser"
-import type { Topology, TopologyNode } from "@/lib/topology"
+import { COMMAND_LABEL, type CommandKey } from "@/lib/show-parser"
+import type { Evidence, Topology, TopologyLink, TopologyNode } from "@/lib/topology"
 import { ROLE_LABEL, type DeviceRole } from "@/lib/types"
 import { NODE_H, NODE_W, SEG_H, SEG_W, layoutGraph, type Positions } from "./layout-graph"
 
@@ -56,17 +57,37 @@ function edgePoint(c: { x: number; y: number }, to: { x: number; y: number }, w:
   return { x: c.x + ux * (d + extra), y: c.y + uy * (d + extra) }
 }
 
+const EVIDENCE_LABEL: Record<Evidence, string> = {
+  cdp: "CDP",
+  ospf: "OSPF neighbor",
+  subnet: "IP วง /30–/31 เดียวกัน",
+  description: "interface description",
+  route: "default route",
+}
+
+/** Drawn solid when a device reported the neighbour (CDP / OSPF) or the addressing proves it; dashed when inferred. */
+const isFirm = (l: TopologyLink) => l.sources.some((s) => s === "cdp" || s === "ospf" || s === "subnet")
+
+function linkTitle(l: TopologyLink) {
+  const pairs = l.pairs.map((p) => {
+    const m = [p.aMembers?.length ? ` [${p.aMembers.map(shortIfName).join(", ")}]` : "", p.bMembers?.length ? ` [${p.bMembers.map(shortIfName).join(", ")}]` : ""]
+    return `${p.aIf ?? "?"}${m[0]} ↔ ${p.bIf ?? "?"}${m[1]}`
+  })
+  return [`${l.a} ↔ ${l.b}`, ...pairs, l.vlans ? `VLAN: ${l.vlans}` : "", `จาก: ${l.sources.map((s) => EVIDENCE_LABEL[s]).join(", ")}`].filter(Boolean).join("\n")
+}
+
 function ifList(names: (string | null)[]) {
   const s = names.filter((n): n is string => !!n).map(shortIfName)
   if (s.length <= 2) return s.join(", ")
   return `${s[0]} +${s.length - 1}`
 }
 
-export function DiagramClient({ sites, siteCode, topology, configCount }: {
+export function DiagramClient({ sites, siteCode, topology, configCount, includeEndpoints }: {
   sites: { code: string; name: string; configCount: number }[]
   siteCode: string
   topology: Topology
   configCount: number
+  includeEndpoints: boolean
 }) {
   const router = useRouter()
   const svgRef = React.useRef<SVGSVGElement>(null)
@@ -187,6 +208,8 @@ export function DiagramClient({ sites, siteCode, topology, configCount }: {
           </div>
           <CheckboxInput label="แสดง LAN segment" value={showSegments} onChange={setShowSegments} />
           <CheckboxInput label="แสดงชื่อ interface" value={showLabels} onChange={setShowLabels} />
+          <CheckboxInput label="แสดง IP Phone / endpoint จาก CDP" value={includeEndpoints}
+            onChange={(on) => router.push(`/diagram?site=${encodeURIComponent(siteCode)}${on ? "&endpoints=1" : ""}`)} />
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="ghost" size="sm" label="Fit" icon={<Maximize2 className="h-3.5 w-3.5" />} onClick={() => setView(boundsOf(pos))} />
             <Button variant="ghost" size="sm" label="Reset layout" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={resetLayout} />
@@ -198,8 +221,8 @@ export function DiagramClient({ sites, siteCode, topology, configCount }: {
       {configCount === 0 ? (
         <Panel>
           <p className="text-sm">
-            Site <span className="font-mono font-semibold">{siteCode}</span> ยังไม่มี config{" "}
-            <Link className="text-primary underline" href={`/import?site=${siteCode}`}>ไปที่ Import configuration</Link> เพื่ออัปโหลด running-config ของอุปกรณ์ก่อน
+            Site <span className="font-mono font-semibold">{siteCode}</span> ยังไม่มีข้อมูลที่ Import{" "}
+            <Link className="text-primary underline" href={`/import?site=${siteCode}`}>ไปที่ Import configuration</Link> เพื่ออัปโหลดผลคำสั่ง show ของอุปกรณ์ก่อน
           </p>
         </Panel>
       ) : (
@@ -238,14 +261,17 @@ export function DiagramClient({ sites, siteCode, topology, configCount }: {
               if (!a || !b) return null
               const la = edgePoint(a, b, NODE_W, NODE_H, 16)
               const lb = edgePoint(b, a, NODE_W, NODE_H, 16)
-              const evidence = l.sources.includes("subnet")
+              const firm = isFirm(l)
+              const lag = l.pairs.some((p) => (p.aMembers?.length ?? 0) > 1 || (p.bMembers?.length ?? 0) > 1)
               return (
                 <g key={l.id}>
-                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--foreground)" strokeWidth={l.pairs.length > 1 ? 3.5 : 2} opacity={evidence ? 0.75 : 0.55} />
+                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--foreground)" strokeWidth={l.pairs.length > 1 || lag ? 3.5 : 2}
+                    opacity={firm ? 0.75 : 0.5} strokeDasharray={firm ? undefined : "6 5"} />
+                  {/* A wide transparent line so the tooltip is easy to hit. */}
+                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={12}><title>{linkTitle(l)}</title></line>
                   {l.pairs.length > 1 && <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2} text={`×${l.pairs.length}`} strong />}
                   {showLabels && <Label x={la.x} y={la.y} text={ifList(l.pairs.map((p) => p.aIf))} />}
                   {showLabels && <Label x={lb.x} y={lb.y} text={ifList(l.pairs.map((p) => p.bIf))} />}
-                  <title>{`${l.a} ↔ ${l.b}\n${l.pairs.map((p) => `${p.aIf ?? "?"} ↔ ${p.bIf ?? "?"}`).join("\n")}\nจาก: ${l.sources.map((s) => (s === "subnet" ? "IP วงเดียวกัน" : "interface description")).join(", ")}`}</title>
                 </g>
               )
             })}
@@ -265,8 +291,20 @@ export function DiagramClient({ sites, siteCode, topology, configCount }: {
               const p = pos[n.id]
               if (!p) return null
               const st = ROLE_STYLE[n.role]
-              const Icon = st.icon
               const isSel = selected === n.id
+              if (n.kind === "wan") {
+                return (
+                  <g key={n.id} transform={`translate(${p.x - NODE_W / 2} ${p.y - NODE_H / 2})`} className="cursor-pointer" onPointerDown={(e) => onPointerDown(e, n.id)}>
+                    <ellipse cx={NODE_W / 2} cy={NODE_H / 2} rx={NODE_W / 2} ry={NODE_H / 2} fill="var(--muted)" stroke={isSel ? "var(--primary)" : "var(--muted-foreground)"} strokeWidth={isSel ? 3 : 1.4} />
+                    <Cloud x={24} y={NODE_H / 2 - 10} width={20} height={20} color="var(--muted-foreground)" />
+                    <text x={52} y={25} fontSize={13} fontWeight={600} fill="var(--foreground)">WAN / ISP</text>
+                    <text x={52} y={42} fontSize={11} fill="var(--muted-foreground)" fontFamily="ui-monospace, monospace">gw {n.mgmtIp}</text>
+                    <title>{`Default gateway ${n.mgmtIp} (${n.seenVia})`}</title>
+                  </g>
+                )
+              }
+              const Icon = n.kind === "endpoint" ? Phone : st.icon
+              const sub = n.imported ? (n.mgmtIp ?? ROLE_LABEL[n.role]) : n.kind === "ospf-peer" ? `OSPF peer · ${n.mgmtIp}` : (n.platform ?? n.mgmtIp ?? "ยังไม่ได้ Import")
               return (
                 <g key={n.id} transform={`translate(${p.x - NODE_W / 2} ${p.y - NODE_H / 2})`} className="cursor-pointer" onPointerDown={(e) => onPointerDown(e, n.id)}>
                   <rect width={NODE_W} height={NODE_H} rx={10} fill="var(--card)" stroke={isSel ? "var(--primary)" : st.color}
@@ -274,8 +312,8 @@ export function DiagramClient({ sites, siteCode, topology, configCount }: {
                   <rect width={6} height={NODE_H} rx={3} fill={st.color} opacity={n.imported ? 1 : 0.4} />
                   <Icon x={14} y={NODE_H / 2 - 10} width={20} height={20} color={st.color} />
                   <text x={42} y={24} fontSize={13} fontWeight={600} fill="var(--foreground)">{n.hostname.length > 18 ? `${n.hostname.slice(0, 17)}…` : n.hostname}</text>
-                  <text x={42} y={42} fontSize={11} fill="var(--muted-foreground)" fontFamily="ui-monospace, monospace">{n.imported ? (n.mgmtIp ?? ROLE_LABEL[n.role]) : "ยังไม่ได้ Import"}</text>
-                  <title>{`${n.hostname} · ${ROLE_LABEL[n.role]}${n.mgmtIp ? ` · ${n.mgmtIp}` : ""}`}</title>
+                  <text x={42} y={42} fontSize={11} fill="var(--muted-foreground)" fontFamily="ui-monospace, monospace">{sub.length > 20 ? `${sub.slice(0, 19)}…` : sub}</text>
+                  <title>{`${n.hostname} · ${ROLE_LABEL[n.role]}${n.mgmtIp ? ` · ${n.mgmtIp}` : ""}${n.seenVia ? `\nยังไม่ได้ Import · พบจาก ${n.seenVia}` : ""}`}</title>
                 </g>
               )
             })}
@@ -284,8 +322,9 @@ export function DiagramClient({ sites, siteCode, topology, configCount }: {
             {(Object.keys(ROLE_STYLE) as DeviceRole[]).filter((r) => topology.nodes.some((n) => n.role === r)).map((r) => (
               <span key={r} className="flex items-center gap-1.5"><span className="inline-block size-2.5 rounded-full" style={{ background: ROLE_STYLE[r].color }} />{ROLE_LABEL[r]}</span>
             ))}
-            <span>กรอบเส้นประ = อุปกรณ์ที่ถูกอ้างถึงแต่ยังไม่ได้ Import config</span>
-            <span>เส้นหนา ×N = หลาย link ระหว่างคู่เดียวกัน</span>
+            <span>กรอบเส้นประ = พบจาก CDP / description / OSPF แต่ยังไม่ได้ Import</span>
+            <span>เส้นทึบ = ยืนยันจาก CDP, OSPF หรือ IP · เส้นประ = อนุมานจาก description หรือ route</span>
+            <span>เส้นหนา = Port-channel หรือหลาย link · ชี้ที่เส้นเพื่อดูรายละเอียด</span>
             <span className="ml-auto">{topology.nodes.length} อุปกรณ์ · {topology.links.length} link · {topology.segments.length} segment</span>
           </div>
         </Panel>
@@ -322,21 +361,68 @@ function NodeDetails({ node, onClose, siteCode }: { node: TopologyNode; onClose:
         <div><dt className="text-muted-foreground text-xs">Platform</dt><dd>{node.platform ?? "—"}</dd></div>
         <div><dt className="text-muted-foreground text-xs">Version</dt><dd className="font-mono">{node.version ?? "—"}</dd></div>
       </dl>
-      {node.imported ? (
-        <DataTable head={["Interface", "Description", "IP address", "Mode", "VLAN", "State"]} empty={ifs.length === 0}>
-          {ifs.map((i) => (
-            <tr key={i.name}>
-              <Td mono>{i.name}</Td>
-              <Td>{i.description ?? "—"}</Td>
-              <Td mono>{i.address ?? "—"}</Td>
-              <Td>{i.mode ?? "—"}</Td>
-              <Td mono>{i.vlan ?? "—"}</Td>
-              <Td>{i.shutdown ? <span className="text-muted-foreground">shutdown</span> : "up"}</Td>
-            </tr>
+      {node.imported && (
+        <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">
+          <span className="text-muted-foreground mr-1">คำสั่งที่ Import:</span>
+          {(Object.keys(COMMAND_LABEL) as CommandKey[]).map((k) => (
+            <span key={k} className={`rounded px-1.5 py-0.5 font-mono ${node.commands.includes(k) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground line-through opacity-60"}`}>
+              {COMMAND_LABEL[k].replace(/^show /, "")}
+            </span>
           ))}
-        </DataTable>
+        </div>
+      )}
+      {node.imported ? (
+        <>
+          <h3 className="mb-1 text-sm font-semibold">Interfaces</h3>
+          <DataTable head={["Interface", "Description", "IP address", "Mode", "VLAN", "State"]} empty={ifs.length === 0}>
+            {ifs.map((i) => (
+              <tr key={i.name}>
+                <Td mono>{i.name}</Td>
+                <Td>{i.description ?? "—"}</Td>
+                <Td mono>{i.address ?? "—"}</Td>
+                <Td>{i.mode ?? "—"}</Td>
+                <Td mono>{i.vlan ?? "—"}</Td>
+                <Td>{i.shutdown ? <span className="text-muted-foreground">shutdown</span>
+                  : i.status ? <span className={/^(connected|up)$/i.test(i.status) ? "" : "text-destructive"}>{i.status}</span> : "—"}</Td>
+              </tr>
+            ))}
+          </DataTable>
+          {node.cdp.length > 0 && (
+            <>
+              <h3 className="mt-4 mb-1 text-sm font-semibold">CDP neighbors ({node.cdp.length})</h3>
+              <DataTable head={["Local interface", "Neighbor", "Port", "Platform", "IP", "Capability"]}>
+                {node.cdp.map((c, i) => (
+                  <tr key={i}>
+                    <Td mono>{c.localIf}</Td><Td><span className="font-medium">{c.deviceId}</span></Td><Td mono>{c.remoteIf ?? "—"}</Td>
+                    <Td>{c.platform ?? "—"}</Td><Td mono>{c.ip ?? "—"}</Td><Td mono>{c.capabilities.join(" ") || "—"}</Td>
+                  </tr>
+                ))}
+              </DataTable>
+            </>
+          )}
+          {node.ospf.length > 0 && (
+            <>
+              <h3 className="mt-4 mb-1 text-sm font-semibold">OSPF neighbors ({node.ospf.length})</h3>
+              <DataTable head={["Neighbor ID", "State", "Address", "Interface"]}>
+                {node.ospf.map((o, i) => (
+                  <tr key={i}><Td mono>{o.routerId}</Td><Td>{o.state}</Td><Td mono>{o.address}</Td><Td mono>{o.localIf}</Td></tr>
+                ))}
+              </DataTable>
+            </>
+          )}
+          {node.routes.total > 0 && (
+            <p className="mt-4 text-sm">
+              <span className="font-semibold">Routing table:</span> {node.routes.total} routes
+              {" ("}{Object.entries(node.routes.byProtocol).map(([p, n]) => `${p} ${n}`).join(", ")}{")"}
+              {node.routes.defaultVia.length > 0 && <> · default via <span className="font-mono">{node.routes.defaultVia.join(", ")}</span></>}
+            </p>
+          )}
+        </>
       ) : (
-        <p className="text-sm">อุปกรณ์นี้ถูกอ้างถึงใน description ของอุปกรณ์อื่น <Link className="text-primary underline" href={`/import?site=${siteCode}`}>Import config ของ {node.hostname}</Link> เพื่อให้ Diagram ครบ</p>
+        <p className="text-sm">
+          {node.kind === "wan" ? "Next hop ของ default route ที่ไม่ใช่อุปกรณ์ใน Site" : `พบจาก ${node.seenVia ?? "อุปกรณ์อื่น"} แต่ยังไม่ได้ Import ผลคำสั่งของอุปกรณ์นี้`}
+          {node.kind !== "wan" && node.kind !== "ospf-peer" && <> · <Link className="text-primary underline" href={`/import?site=${siteCode}`}>Import ผลคำสั่งของ {node.hostname}</Link> เพื่อให้ Diagram ครบ</>}
+        </p>
       )}
     </Panel>
   )

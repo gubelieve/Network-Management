@@ -12,10 +12,10 @@ import { TextInput } from "@astryxdesign/core/TextInput"
 import { useToast } from "@astryxdesign/core/Toast"
 import { DataTable, Td } from "@/components/data-table"
 import { Panel } from "@/components/page-header"
-import { parseConfig, type ParsedConfig } from "@/lib/config-parser"
+import { COMMAND_LABEL, parseDeviceText, type CommandKey, type DeviceData } from "@/lib/show-parser"
 import { importConfigs, removeConfig } from "./actions"
 
-interface Row { key: string; fileName: string; raw: string; cfg: ParsedConfig; hostname: string }
+interface Row { key: string; fileName: string; raw: string; data: DeviceData; hostname: string }
 interface StoredRow { hostname: string; fileName: string; importedAt: string; size: number }
 
 const MAX_FILE = 2 * 1024 * 1024
@@ -40,8 +40,8 @@ export function ImportClient({ sites, siteCode, stored, deviceHostnames }: {
     setRows((prev) => [
       ...prev,
       ...items.map((it, n) => {
-        const cfg = parseConfig(it.raw)
-        return { key: `${Date.now()}-${n}-${it.fileName}`, fileName: it.fileName, raw: it.raw, cfg, hostname: cfg.hostname ?? "" }
+        const data = parseDeviceText(it.raw)
+        return { key: `${Date.now()}-${n}-${it.fileName}`, fileName: it.fileName, raw: it.raw, data, hostname: data.hostname ?? "" }
       }),
     ])
   }
@@ -56,7 +56,7 @@ export function ImportClient({ sites, siteCode, stored, deviceHostnames }: {
 
   const status = (r: Row): { label: string; variant: "green" | "yellow" | "red" | "neutral" } => {
     if (!r.hostname.trim()) return { label: "ไม่พบ hostname", variant: "red" }
-    if (r.cfg.interfaces.length === 0) return { label: "ไม่พบ interface", variant: "red" }
+    if (r.data.commands.length === 0) return { label: "ไม่พบคำสั่งที่รองรับ", variant: "red" }
     const h = r.hostname.trim().toLowerCase()
     if (storedNames.has(h)) return { label: "แทนที่ config เดิม", variant: "yellow" }
     if (deviceNames.has(h)) return { label: "อัปเดตอุปกรณ์เดิม", variant: "green" }
@@ -85,7 +85,7 @@ export function ImportClient({ sites, siteCode, stored, deviceHostnames }: {
         </div>
       </Panel>
 
-      <Panel title="1. เลือกไฟล์ config">
+      <Panel title="1. เลือกไฟล์">
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
@@ -96,15 +96,19 @@ export function ImportClient({ sites, siteCode, stored, deviceHostnames }: {
           <div className="text-sm">ลากไฟล์มาวางที่นี่ หรือ</div>
           <Button variant="secondary" size="sm" label="Browse files" onClick={() => fileRef.current?.click()} />
           <div className="text-muted-foreground text-xs">.txt .cfg .conf .log · ไฟล์ละไม่เกิน 2 MB · เลือกได้หลายไฟล์ (1 ไฟล์ต่อ 1 อุปกรณ์)</div>
+          <div className="text-muted-foreground max-w-2xl text-xs">
+            เป็น log ที่มีผลของคำสั่งเหล่านี้ อุปกรณ์ละไฟล์ (มีคำสั่งไหนก็ได้ ยิ่งครบ Diagram ยิ่งแม่น): {Object.values(COMMAND_LABEL).join(" · ")}
+          </div>
           <input ref={fileRef} type="file" multiple accept=".txt,.cfg,.conf,.log,.config,text/plain" className="hidden"
             onChange={(e) => e.target.files && void addFiles(e.target.files)} />
         </div>
         <details className="mt-3">
-          <summary className="text-muted-foreground cursor-pointer text-sm">หรือวาง config เป็นข้อความ</summary>
+          <summary className="text-muted-foreground cursor-pointer text-sm">หรือวางผลคำสั่งเป็นข้อความ</summary>
           <div className="mt-2">
-            <TextArea label="Running-config" value={paste} onChange={setPaste} rows={8} placeholder={"hostname SW-01\n!\ninterface GigabitEthernet1/0/1\n description TO CORE-01 Gi1/0/10\n..."} />
+            <TextArea label="ผลคำสั่งของอุปกรณ์ 1 ตัว" value={paste} onChange={setPaste} rows={8}
+              placeholder={"SW-01#show cdp neighbors\nDevice ID        Local Intrfce     Holdtme    Capability  Platform  Port ID\n...\nSW-01#show running-config\n..."} />
             <div className="mt-2">
-              <Button variant="secondary" size="sm" label="Add pasted config" isDisabled={!paste.trim()}
+              <Button variant="secondary" size="sm" label="Add pasted output" isDisabled={!paste.trim()}
                 onClick={() => { addTexts([{ fileName: `pasted-${rows.length + 1}.txt`, raw: paste }]); setPaste("") }} />
             </div>
           </div>
@@ -115,24 +119,25 @@ export function ImportClient({ sites, siteCode, stored, deviceHostnames }: {
         actions={rows.length > 0 && <Button variant="ghost" size="sm" label="Clear all" onClick={() => setRows([])} />}>
         {rows.length === 0 ? <p className="text-muted-foreground text-sm">ยังไม่ได้เลือกไฟล์</p> : (
           <>
-            <DataTable head={["File", "Hostname", "Platform", "Version", "Interfaces", "IP addresses", "VLANs", "Mgmt IP", "Result", ""]}>
+            <DataTable head={["File", "Hostname", "Commands found", "Platform / Version", "Interfaces", "CDP", "OSPF", "Routes", "Mgmt IP", "Result", ""]}>
               {rows.map((r) => {
                 const st = status(r)
                 return (
                   <tr key={r.key}>
                     <Td mono>{r.fileName}</Td>
                     <Td>
-                      {r.cfg.hostname ? <span className="font-medium">{r.hostname}</span> : (
+                      {r.data.hostname ? <span className="font-medium">{r.hostname}</span> : (
                         <div className="w-40"><TextInput label="Hostname" isLabelHidden size="sm" value={r.hostname} placeholder="ระบุ hostname"
                           onChange={(v) => setRows((prev) => prev.map((x) => (x.key === r.key ? { ...x, hostname: v } : x)))} /></div>
                       )}
                     </Td>
-                    <Td>{PLATFORM[r.cfg.platform]}</Td>
-                    <Td mono>{r.cfg.version ?? "—"}</Td>
-                    <Td>{r.cfg.interfaces.length}</Td>
-                    <Td>{r.cfg.interfaces.filter((i) => i.ip).length}</Td>
-                    <Td>{r.cfg.vlans.length}</Td>
-                    <Td mono>{r.cfg.mgmtIp ?? "—"}</Td>
+                    <Td><Commands found={r.data.commands} /></Td>
+                    <Td>{r.data.commands.includes("run") ? `${PLATFORM[r.data.config.platform]}${r.data.config.version ? ` ${r.data.config.version}` : ""}` : "—"}</Td>
+                    <Td>{r.data.config.interfaces.length}</Td>
+                    <Td>{r.data.cdp.length}</Td>
+                    <Td>{r.data.ospf.length}</Td>
+                    <Td>{r.data.routes.length}</Td>
+                    <Td mono>{r.data.config.mgmtIp ?? "—"}</Td>
                     <Td><Badge variant={st.variant} label={st.label} /></Td>
                     <Td>
                       <button type="button" aria-label={`Remove ${r.fileName}`} className="text-muted-foreground hover:text-foreground"
@@ -178,5 +183,21 @@ export function ImportClient({ sites, siteCode, stored, deviceHostnames }: {
         </p>
       </Panel>
     </>
+  )
+}
+
+const ALL_COMMANDS = Object.keys(COMMAND_LABEL) as CommandKey[]
+
+/** Which of the supported commands a file contained; the missing ones are struck through. */
+function Commands({ found }: { found: CommandKey[] }) {
+  return (
+    <div className="flex w-[300px] flex-wrap gap-1 whitespace-normal">
+      {ALL_COMMANDS.map((k) => (
+        <span key={k} title={COMMAND_LABEL[k]}
+          className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${found.includes(k) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground line-through opacity-60"}`}>
+          {COMMAND_LABEL[k].replace(/^show /, "")}
+        </span>
+      ))}
+    </div>
   )
 }
