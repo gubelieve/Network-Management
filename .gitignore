@@ -10,5 +10,5 @@ npm-debug.log*
 # Imported device configs (Import configuration page) - customer data, never commit.
 /data/
 
-# The repository root .gitignore (Python template) ignores every "lib/" folder - this one is source code.
+# Kept from when this lived inside Onsite_Tools_v1.1, whose root .gitignore ignored every "lib/" folder.
 !/src/lib/
