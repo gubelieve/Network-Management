@@ -2,6 +2,7 @@ import "server-only"
 import { listConfigs } from "./config-store"
 import { CIRCUITS, DEVICES, SITES, SUBNETS } from "./sample-data"
 import { mergeConfigs } from "./site-merge"
+import { readStoredSites } from "./site-store"
 import { buildTopology, type Topology } from "./topology"
 import type { Device, Site, SiteDetail, SiteSummary } from "./types"
 
@@ -10,8 +11,13 @@ import type { Device, Site, SiteDetail, SiteSummary } from "./types"
 // is up, replace the sample reads with Prisma queries (import prisma from
 // "./prisma") and keep the signatures, so no page changes.
 
+/** The sample sites plus every site added on the Add site page. */
+export async function allSites(): Promise<Site[]> {
+  return [...SITES, ...(await readStoredSites())]
+}
+
 export async function listSites(): Promise<SiteSummary[]> {
-  return Promise.all(SITES.map(async (s) => {
+  return Promise.all((await allSites()).map(async (s) => {
     const configs = await listConfigs(s.code)
     const { devices } = mergeConfigs(s, DEVICES.filter((d) => d.siteId === s.id), [], configs)
     return {
@@ -25,7 +31,7 @@ export async function listSites(): Promise<SiteSummary[]> {
 }
 
 export async function findSite(code: string): Promise<Site | null> {
-  return SITES.find((s) => s.code.toLowerCase() === code.toLowerCase()) ?? null
+  return (await allSites()).find((s) => s.code.toLowerCase() === code.toLowerCase()) ?? null
 }
 
 export async function getSite(code: string): Promise<SiteDetail | null> {
@@ -44,7 +50,7 @@ export async function getSite(code: string): Promise<SiteDetail | null> {
 export type DeviceWithSite = Device & { siteCode: string; siteName: string }
 
 export async function listDevices(): Promise<DeviceWithSite[]> {
-  const perSite = await Promise.all(SITES.map(async (s) => {
+  const perSite = await Promise.all((await allSites()).map(async (s) => {
     const detail = await getSite(s.code)
     return detail!.devices.map((d) => ({ ...d, siteCode: s.code, siteName: s.name }))
   }))
